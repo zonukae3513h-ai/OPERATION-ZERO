@@ -1,0 +1,255 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OPERATION ZERO</title>
+
+<style>
+body {
+  margin: 0;
+  overflow: hidden;
+  background: #101820;
+  font-family: Arial, sans-serif;
+}
+#hud {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  color: white;
+  z-index: 2;
+}
+#controls {
+  position: fixed;
+  bottom: 20px;
+  width: 100%;
+  display: flex;
+  justify-content: space-around;
+  z-index: 3;
+}
+button {
+  background: #172d42;
+  color: white;
+  border: 2px solid #36baff;
+  border-radius: 12px;
+  padding: 17px;
+  font-size: 19px;
+  touch-action: none;
+}
+#fire { background: #9c2929; }
+</style>
+</head>
+
+<body>
+
+<div id="hud">
+  <h2>OPERATION ZERO</h2>
+  <p>Salud: <span id="health">100</span></p>
+  <p>Objetivos: <span id="score">0</span></p>
+</div>
+
+<div id="controls">
+  <button id="left">◀</button>
+  <button id="forward">▲</button>
+  <button id="back">▼</button>
+  <button id="right">▶</button>
+  <button id="fire">DISPARAR</button>
+</div>
+
+<script type="module">
+import * as THREE from
+'https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js';
+
+// ESCENARIO
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x87a9bd);
+
+const camera = new THREE.PerspectiveCamera(
+  70, window.innerWidth / window.innerHeight, 0.1, 1000
+);
+
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+document.body.appendChild(renderer.domElement);
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x334455, 2));
+
+const sun = new THREE.DirectionalLight(0xffffff, 2);
+sun.position.set(10, 20, 10);
+scene.add(sun);
+
+// SUELO
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(100, 100),
+  new THREE.MeshStandardMaterial({color:0x40594a})
+);
+floor.rotation.x = -Math.PI / 2;
+scene.add(floor);
+
+const grid = new THREE.GridHelper(100, 50);
+scene.add(grid);
+
+// PERSONAJE
+const player = new THREE.Group();
+
+const body = new THREE.Mesh(
+  new THREE.CapsuleGeometry(0.5, 0.9, 4, 8),
+  new THREE.MeshStandardMaterial({color:0x168bd0})
+);
+body.position.y = 1;
+player.add(body);
+
+const head = new THREE.Mesh(
+  new THREE.SphereGeometry(0.3, 16, 16),
+  new THREE.MeshStandardMaterial({color:0xffc89c})
+);
+head.position.y = 1.85;
+player.add(head);
+
+scene.add(player);
+player.position.set(0, 0, 5);
+
+// OBJETIVOS DE ENTRENAMIENTO
+const targets = [];
+
+for(let i=0; i<5; i++) {
+  const target = new THREE.Mesh(
+    new THREE.BoxGeometry(1, 1.8, 1),
+    new THREE.MeshStandardMaterial({color:0xd34b42})
+  );
+  target.position.set((i-2)*3, 0.9, -12);
+  scene.add(target);
+  targets.push(target);
+}
+
+// CONTROLES
+const keys = {};
+let score = 0;
+let health = 100;
+const projectiles = [];
+
+function bindButton(id, key) {
+  const button = document.getElementById(id);
+
+  button.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    keys[key] = true;
+  });
+
+  ['pointerup','pointerleave','pointercancel'].forEach(event => {
+    button.addEventListener(event, () => keys[key] = false);
+  });
+}
+
+bindButton('left','a');
+bindButton('right','d');
+bindButton('forward','w');
+bindButton('back','s');
+
+window.addEventListener('keydown', e => {
+  keys[e.key.toLowerCase()] = true;
+});
+
+window.addEventListener('keyup', e => {
+  keys[e.key.toLowerCase()] = false;
+});
+
+// DISPARO DE ENERGÍA
+function shoot() {
+  const projectile = new THREE.Mesh(
+    new THREE.SphereGeometry(0.16, 12, 12),
+    new THREE.MeshBasicMaterial({color:0x00eaff})
+  );
+
+  const direction = new THREE.Vector3(0,0,-1)
+    .applyQuaternion(player.quaternion);
+
+  projectile.position.copy(player.position)
+    .add(new THREE.Vector3(0,1.4,0))
+    .add(direction.clone().multiplyScalar(1));
+
+  projectile.userData.velocity = direction.multiplyScalar(0.45);
+
+  scene.add(projectile);
+  projectiles.push(projectile);
+}
+
+document.getElementById('fire').addEventListener(
+  'pointerdown', e => {
+    e.preventDefault();
+    shoot();
+  }
+);
+
+// CÁMARA Y MOVIMIENTO
+const clock = new THREE.Clock();
+
+function animate() {
+  requestAnimationFrame(animate);
+
+  const delta = Math.min(clock.getDelta(), 0.05);
+  const move = new THREE.Vector3();
+
+  if(keys.w || keys.arrowup) move.z -= 1;
+  if(keys.s || keys.arrowdown) move.z += 1;
+  if(keys.a || keys.arrowleft) move.x -= 1;
+  if(keys.d || keys.arrowright) move.x += 1;
+
+  if(move.length() > 0) {
+    move.normalize();
+    player.position.add(move.clone().multiplyScalar(5*delta));
+    player.rotation.y = Math.atan2(-move.x, -move.z);
+  }
+
+  // Cámara detrás del personaje
+  const offset = new THREE.Vector3(0,4,8)
+    .applyQuaternion(player.quaternion);
+
+  const cameraPosition = player.position.clone().add(offset);
+  camera.position.lerp(cameraPosition, 0.12);
+
+  const lookAt = player.position.clone()
+    .add(new THREE.Vector3(0,1,0));
+
+  camera.lookAt(lookAt);
+
+  // Movimiento de proyectiles
+  for(let i=projectiles.length-1; i>=0; i--) {
+    const p = projectiles[i];
+    p.position.add(p.userData.velocity);
+
+    let hit = false;
+
+    for(let j=targets.length-1; j>=0; j--) {
+      if(p.position.distanceTo(targets[j].position) < 1) {
+        scene.remove(targets[j]);
+        targets.splice(j,1);
+        score++;
+        document.getElementById('score').textContent = score;
+        hit = true;
+        break;
+      }
+    }
+
+    if(hit || p.position.length() > 100) {
+      scene.remove(p);
+      projectiles.splice(i,1);
+    }
+  }
+
+  renderer.render(scene,camera);
+}
+
+animate();
+
+// ADAPTACIÓN A PANTALLAS
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth,window.innerHeight);
+});
+</script>
+</body>
+</html>
